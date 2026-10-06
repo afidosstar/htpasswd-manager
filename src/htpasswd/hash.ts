@@ -14,7 +14,20 @@ import bcrypt from 'bcryptjs';
 
 const ITOA64 = './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
-export const ALGORITHMS = Object.freeze({
+export type Algorithm = 'bcrypt-2y' | 'bcrypt-2a' | 'sha512' | 'sha256' | 'apr1' | 'md5' | 'ssha' | 'sha' | 'plain';
+export type DetectedAlgorithm = Algorithm | 'bcrypt-2b' | 'des' | 'plain-prefixed';
+
+export interface AlgorithmInfo {
+  label: string;
+  hint: string;
+}
+
+export interface HashOptions {
+  bcryptCost?: number;
+  shaRounds?: number;
+}
+
+export const ALGORITHMS: Readonly<Record<Algorithm, AlgorithmInfo>> = Object.freeze({
   'bcrypt-2y': { label: 'Bcrypt ($2y$)', hint: 'Recommandé. Format par défaut de htpasswd\u00a0-B.' },
   'bcrypt-2a': { label: 'Bcrypt ($2a$)', hint: 'Variante pour les outils qui ne reconnaissent pas $2y$.' },
   sha512: { label: 'SHA-512 crypt ($6$)', hint: 'Format glibc crypt(3), salé et itéré.' },
@@ -26,8 +39,21 @@ export const ALGORITHMS = Object.freeze({
   plain: { label: 'Texte brut', hint: 'Aucun hachage : le mot de passe est lisible dans le fichier. Tests uniquement.' },
 });
 
-const DETECT_LABELS = {
-  ...Object.fromEntries(Object.entries(ALGORITHMS).map(([k, v]) => [k, v.label])),
+export type Strength = 'strong' | 'weak' | 'none';
+
+const STRENGTH: Record<DetectedAlgorithm, Strength> = {
+  'bcrypt-2y': 'strong', 'bcrypt-2a': 'strong', 'bcrypt-2b': 'strong', sha512: 'strong', sha256: 'strong',
+  apr1: 'weak', md5: 'weak', ssha: 'weak', sha: 'weak', des: 'weak',
+  plain: 'none', 'plain-prefixed': 'none',
+};
+
+/** Robustesse d'un format face au brute-force : fort (lent et salé), faible, aucun (texte brut). */
+export const algorithmStrength = (id: DetectedAlgorithm): Strength => STRENGTH[id];
+
+export const isAlgorithm = (a: unknown): a is Algorithm => typeof a === 'string' && Object.hasOwn(ALGORITHMS, a);
+
+const DETECT_LABELS: Record<DetectedAlgorithm, string> = {
+  ...(Object.fromEntries(Object.entries(ALGORITHMS).map(([k, v]) => [k, v.label])) as Record<Algorithm, string>),
   'bcrypt-2b': 'Bcrypt ($2b$)',
   des: 'DES crypt (hérité)',
   'plain-prefixed': 'Texte brut ({PLAIN})',
@@ -37,26 +63,33 @@ export const BCRYPT_MAX_BYTES = 72;
 
 /* ------------------------------------------------------------------ utils */
 
-function to64(value, n) {
+function to64(value: number, n: number): string {
   let out = '';
   while (n-- > 0) {
-    out += ITOA64[value & 0x3f];
+    out += ITOA64.charAt(value & 0x3f);
     value >>>= 6;
   }
   return out;
 }
 
-function b64From24(buf, a, b, c, n) {
-  return to64((buf[a] << 16) | (buf[b] << 8) | buf[c], n);
+function b64From24(buf: Buffer, a: number, b: number, c: number, n: number): string {
+  return to64((byte(buf, a) << 16) | (byte(buf, b) << 8) | byte(buf, c), n);
 }
 
-export function randomSalt(length) {
+/** Octet à l'index i (les index sont toujours dans les bornes : contrôle pour le typage strict). */
+function byte(buf: Buffer, i: number): number {
+  const v = buf[i];
+  if (v === undefined) throw new RangeError(`index ${i} hors limites`);
+  return v;
+}
+
+export function randomSalt(length: number): string {
   let s = '';
-  for (let i = 0; i < length; i++) s += ITOA64[randomInt(64)];
+  for (let i = 0; i < length; i++) s += ITOA64.charAt(randomInt(64));
   return s;
 }
 
-function repeatTo(src, length) {
+function repeatTo(src: Buffer, length: number): Buffer {
   const out = Buffer.alloc(length);
   for (let off = 0; off < length; off += src.length) src.copy(out, off, 0, Math.min(src.length, length - off));
   return out;
@@ -64,7 +97,7 @@ function repeatTo(src, length) {
 
 /* ------------------------------------------------------ MD5-crypt / APR1 */
 
-export function md5crypt(password, magic = '$1$', salt = randomSalt(8)) {
+export function md5crypt(password: string, magic: '$1$' | '$apr1$' = '$1$', salt: string = randomSalt(8)): string {
   const pw = Buffer.from(password, 'utf8');
   salt = salt.slice(0, 8);
   const s = Buffer.from(salt, 'utf8');
@@ -91,17 +124,25 @@ export function md5crypt(password, magic = '$1$', salt = randomSalt(8)) {
     + b64From24(fin, 2, 8, 14, 4)
     + b64From24(fin, 3, 9, 15, 4)
     + b64From24(fin, 4, 10, 5, 4)
-    + to64(fin[11], 2);
+    + to64(byte(fin, 11), 2);
 }
 
 /* ------------------------------------------------------------ SHA-crypt */
 
-const SHA_CRYPT = {
+type ShaAlgo = 'sha256' | 'sha512';
+
+interface ShaSpec {
+  magic: string;
+  order: ReadonlyArray<readonly [number, number, number]>;
+  tail: (c: Buffer) => string;
+}
+
+const SHA_CRYPT: Record<ShaAlgo, ShaSpec> = {
   sha256: {
     magic: '$5$',
     order: [[0, 10, 20], [21, 1, 11], [12, 22, 2], [3, 13, 23], [24, 4, 14],
       [15, 25, 5], [6, 16, 26], [27, 7, 17], [18, 28, 8], [9, 19, 29]],
-    tail: (c) => to64((c[31] << 8) | c[30], 3),
+    tail: (c) => to64((byte(c, 31) << 8) | byte(c, 30), 3),
   },
   sha512: {
     magic: '$6$',
@@ -109,13 +150,13 @@ const SHA_CRYPT = {
       [6, 27, 48], [28, 49, 7], [50, 8, 29], [9, 30, 51], [31, 52, 10], [53, 11, 32],
       [12, 33, 54], [34, 55, 13], [56, 14, 35], [15, 36, 57], [37, 58, 16], [59, 17, 38],
       [18, 39, 60], [40, 61, 19], [62, 20, 41]],
-    tail: (c) => to64(c[63], 2),
+    tail: (c) => to64(byte(c, 63), 2),
   },
 };
 
 export const SHA_ROUNDS_DEFAULT = 5000;
 
-export function shacrypt(password, algo, { salt = randomSalt(16), rounds = SHA_ROUNDS_DEFAULT } = {}) {
+export function shacrypt(password: string, algo: ShaAlgo, { salt = randomSalt(16), rounds = SHA_ROUNDS_DEFAULT }: { salt?: string; rounds?: number } = {}): string {
   const spec = SHA_CRYPT[algo];
   if (!spec) throw new Error(`Algorithme SHA-crypt inconnu : ${algo}`);
   rounds = Math.min(999_999_999, Math.max(1000, Math.trunc(rounds)));
@@ -139,7 +180,7 @@ export function shacrypt(password, algo, { salt = randomSalt(16), rounds = SHA_R
   const Pp = repeatTo(dp.digest(), P.length);
 
   const ds = H();
-  for (let i = 0; i < 16 + C[0]; i++) ds.update(S);
+  for (let i = 0; i < 16 + byte(C, 0); i++) ds.update(S);
   const Sp = repeatTo(ds.digest(), S.length);
 
   for (let r = 0; r < rounds; r++) {
@@ -158,18 +199,18 @@ export function shacrypt(password, algo, { salt = randomSalt(16), rounds = SHA_R
 
 /* --------------------------------------------------------- SHA / SSHA */
 
-export function sha1Apache(password) {
+export function sha1Apache(password: string): string {
   return '{SHA}' + createHash('sha1').update(password, 'utf8').digest('base64');
 }
 
-export function ssha(password, salt = randomBytes(8)) {
+export function ssha(password: string, salt: Buffer = randomBytes(8)): string {
   const digest = createHash('sha1').update(password, 'utf8').update(salt).digest();
   return '{SSHA}' + Buffer.concat([digest, salt]).toString('base64');
 }
 
 /* ------------------------------------------------------------- bcrypt */
 
-export async function bcryptHash(password, { cost = 10, variant = '2y' } = {}) {
+export async function bcryptHash(password: string, { cost = 10, variant = '2y' }: { cost?: number; variant?: '2a' | '2y' } = {}): Promise<string> {
   const hash = await bcrypt.hash(password, await bcrypt.genSalt(cost));
   // $2a$, $2b$ et $2y$ sont algorithmiquement identiques pour bcryptjs :
   // seul le préfixe change pour la compatibilité des vérificateurs.
@@ -180,9 +221,9 @@ export async function bcryptHash(password, { cost = 10, variant = '2y' } = {}) {
 
 /**
  * Hache `password` selon `algorithm`.
- * @returns {Promise<string>} la partie « hash » d'une ligne htpasswd.
+ * @returns la partie « hash » d'une ligne htpasswd.
  */
-export async function hashPassword(password, algorithm, opts = {}) {
+export async function hashPassword(password: string, algorithm: Algorithm, opts: HashOptions = {}): Promise<string> {
   switch (algorithm) {
     case 'bcrypt-2y': return bcryptHash(password, { cost: opts.bcryptCost, variant: '2y' });
     case 'bcrypt-2a': return bcryptHash(password, { cost: opts.bcryptCost, variant: '2a' });
@@ -193,13 +234,13 @@ export async function hashPassword(password, algorithm, opts = {}) {
     case 'ssha': return ssha(password);
     case 'sha': return sha1Apache(password);
     case 'plain': return password;
-    default: throw new Error(`Algorithme non supporté : ${algorithm}`);
+    default: throw new Error(`Algorithme non supporté : ${algorithm satisfies never}`);
   }
 }
 
 /** Identifie le format d'un hash existant (lecture du fichier). */
-export function detectAlgorithm(hash) {
-  let id;
+export function detectAlgorithm(hash: string): { id: DetectedAlgorithm; label: string } {
+  let id: DetectedAlgorithm;
   if (/^\$2y\$\d{2}\$/.test(hash)) id = 'bcrypt-2y';
   else if (/^\$2a\$\d{2}\$/.test(hash)) id = 'bcrypt-2a';
   else if (/^\$2b\$\d{2}\$/.test(hash)) id = 'bcrypt-2b';

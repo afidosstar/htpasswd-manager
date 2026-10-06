@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import { md5crypt, shacrypt, sha1Apache, ssha, hashPassword, detectAlgorithm, ALGORITHMS } from '../src/hash.js';
+import { md5crypt, shacrypt, sha1Apache, ssha, hashPassword, detectAlgorithm, ALGORITHMS, type Algorithm } from '../src/htpasswd/hash.ts';
 
 test('MD5-crypt $1$', () => {
   assert.equal(md5crypt('Hello world!', '$1$', 'saltsalt'), '$1$saltsalt$le8lFSqqnPaRFOlmAZpvH1');
@@ -37,7 +37,7 @@ test('{SSHA} = base64(sha1(pw + sel) + sel)', () => {
 });
 
 test('Bcrypt $2y$ / $2a$ vérifiables', async () => {
-  for (const id of ['bcrypt-2y', 'bcrypt-2a']) {
+  for (const id of ['bcrypt-2y', 'bcrypt-2a'] as const) {
     const h = await hashPassword('s3cret', id, { bcryptCost: 4 });
     assert.match(h, id === 'bcrypt-2y' ? /^\$2y\$04\$/ : /^\$2a\$04\$/);
     assert.ok(bcrypt.compareSync('s3cret', h.replace(/^\$2y\$/, '$2b$')));
@@ -45,14 +45,14 @@ test('Bcrypt $2y$ / $2a$ vérifiables', async () => {
 });
 
 test('Chaque algorithme est détecté sur sa propre sortie', async () => {
-  for (const id of Object.keys(ALGORITHMS)) {
+  for (const id of Object.keys(ALGORITHMS) as Algorithm[]) {
     const h = await hashPassword('Pa55word', id, { bcryptCost: 4 });
     assert.equal(detectAlgorithm(h).id, id, `${id} -> ${h}`);
   }
 });
 
 test('Sels aléatoires : deux hachages successifs diffèrent', async () => {
-  for (const id of ['bcrypt-2y', 'sha512', 'sha256', 'apr1', 'md5', 'ssha']) {
+  for (const id of ['bcrypt-2y', 'sha512', 'sha256', 'apr1', 'md5', 'ssha'] as const) {
     assert.notEqual(await hashPassword('x', id, { bcryptCost: 4 }), await hashPassword('x', id, { bcryptCost: 4 }));
   }
 });

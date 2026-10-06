@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, stat, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { HtpasswdStore } from '../src/store.js';
+import { HtpasswdStore } from '../src/htpasswd/store.ts';
 
 test('upsert, remplacement, commentaires préservés, suppression', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'htp-'));
