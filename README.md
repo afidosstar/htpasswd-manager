@@ -26,10 +26,9 @@ docker run -d --name htpasswd-manager \
 
 ```sh
 cp .env.example .env && chmod 600 .env      # puis éditez ADMIN_PASSWORD
-docker compose pull && docker compose up -d  # image publiée
+docker compose pull && docker compose up -d  # htpasswd-manager + Mailpit (rechargé à chaque modification)
 # ou : docker compose up -d --build          # construction locale
-# Interface : http://127.0.0.1:8080
-docker compose --profile mailpit up -d       # optionnel : Mailpit branché sur le même fichier, rechargé à chaque modification
+# Interface : http://127.0.0.1:8080 — Mailpit : http://127.0.0.1:8025
 ```
 
 ## Prise en compte des modifications : `htpasswd-watch`
@@ -53,7 +52,7 @@ on remplace seulement son `entrypoint`, et le script arrive par une config Swarm
 Il doit être à la même version que htpasswd-manager ; l'extraire de l'image déployée :
 
 ```sh
-docker run --rm --entrypoint cat afidos/htpasswd-manager:1.0.0 /usr/local/bin/htpasswd-watch > htpasswd-watch
+docker run --rm --entrypoint cat afidos/htpasswd-manager:1.1.0 /usr/local/bin/htpasswd-watch > htpasswd-watch
 ```
 
 ### Mailpit sous Docker Swarm
@@ -81,7 +80,7 @@ services:
 
 configs:
   htpasswd-watch:
-    name: htpasswd-watch-1.0.0             # configs immuables : un nom par version
+    name: htpasswd-watch-1.1.0             # configs immuables : un nom par version
     file: ./htpasswd-watch
 ```
 
@@ -90,7 +89,7 @@ configs:
 - Tout compte de l'interface Mailpit voit **tous** les messages : Mailpit n'isole pas les boîtes par utilisateur.
   `MP_TAGS_USERNAME=true` étiquette les messages par compte SMTP (tri, pas contrôle d'accès).
 
-En compose (`docker compose --profile mailpit up -d`), le script est monté depuis `bin/` :
+En compose, le script est monté depuis `bin/` :
 `./bin/htpasswd-watch:/usr/local/bin/htpasswd-watch:ro`.
 
 ### NATS, Nginx (rechargement par signal)

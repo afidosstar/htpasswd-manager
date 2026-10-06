@@ -45,7 +45,7 @@ services:
       options: { max-size: "5m", max-file: "3" }
     # secrets: [admin_user, admin_password]
 
-  # --- Exemple de consommateur : Mailpit (activer avec --profile mailpit) ------
+  # --- Consommateur : Mailpit -------------------------------------------------
   # Image officielle. Mailpit ne lit le fichier d'authentification qu'au démarrage :
   # htpasswd-watch (monté depuis bin/) le relance à chaque modification, sans accès à Docker.
   # Sous Swarm, le script est fourni par une config : voir examples/swarm/stack.yml.
