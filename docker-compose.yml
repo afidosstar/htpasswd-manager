@@ -50,7 +50,6 @@ services:
   # htpasswd-watch (monté depuis bin/) le relance à chaque modification, sans accès à Docker.
   # Sous Swarm, le script est fourni par une config : voir examples/swarm/stack.yml.
   mailpit:
-    profiles: ["mailpit"]
     image: axllent/mailpit:latest   # épinglez une version précise en production
     restart: unless-stopped
     init: true                      # tini : signaux et processus zombies du superviseur
