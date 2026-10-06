@@ -13,14 +13,16 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
  && npm cache clean --force
 
-# --- Étape 2 : tests (échoue le build si un vecteur de hachage régresse) ------
-FROM ${NODE_IMAGE} AS test
+# --- Étape 2 : compilation TypeScript + tests (le build échoue si un test régresse)
+FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY tsconfig*.json ./
 COPY src ./src
+COPY public ./public
 COPY test ./test
-RUN npm test
+RUN npm run typecheck && npm test
 
 # --- Étape 3 : runtime minimal ------------------------------------------------
 FROM ${NODE_IMAGE} AS runtime
@@ -44,10 +46,7 @@ WORKDIR /app
 # Code appartenant à root, en lecture seule pour l'utilisateur d'exécution.
 COPY --from=deps --chown=root:root /app/node_modules ./node_modules
 COPY --chown=root:root package.json ./
-COPY --chown=root:root src ./src
-COPY --chown=root:root public ./public
-# Force l'exécution de l'étape de tests dans un build classique.
-COPY --from=test /app/package.json /tmp/.tests-passed
+COPY --from=build --chown=root:root /app/dist ./dist
 
 USER node
 VOLUME ["/data"]
@@ -57,4 +56,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/healthz" || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["node", "src/server.js"]
+CMD ["node", "dist/server.js"]

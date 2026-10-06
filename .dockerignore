@@ -11,3 +11,5 @@ Dockerfile
 docker-compose*.yml
 README.md
 *.md
+dist
+.idea
