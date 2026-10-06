@@ -1,0 +1,17 @@
+# Dépendances
+node_modules/
+
+# Secrets et configuration locale (ne jamais committer)
+.env
+.env.*
+!.env.example
+secrets/
+
+# Données générées
+data/
+*.tmp
+
+# Journaux et fichiers système
+npm-debug.log*
+.DS_Store
+Thumbs.db

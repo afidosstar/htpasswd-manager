@@ -1,0 +1,19 @@
+{
+  "name": "htpasswd-manager",
+  "version": "1.0.0",
+  "description": "Micro-application web de gestion d'un fichier htpasswd (Mailpit / Apache / Nginx)",
+  "type": "module",
+  "main": "src/server.js",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "3.0.3"
+  }
+}
