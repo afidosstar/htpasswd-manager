@@ -5,7 +5,7 @@ services:
     build:
       context: .
       target: runtime
-    image: htpasswd-manager:1.0.0
+    image: afidos/htpasswd-manager:latest
     restart: unless-stopped
     init: false                     # tini est déjà l'ENTRYPOINT de l'image
     environment:

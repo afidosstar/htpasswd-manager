@@ -3,11 +3,31 @@
 Micro-application web pour créer et maintenir un fichier d'authentification compatible
 Mailpit (`MP_UI_AUTH_FILE` / `MP_SMTP_AUTH_FILE`), Apache `htpasswd` et Nginx `auth_basic_user_file`.
 
-## Démarrage
+## Image Docker
+
+L'image est publiée sur Docker Hub : [`afidos/htpasswd-manager`](https://hub.docker.com/r/afidos/htpasswd-manager).
+
+```sh
+docker pull afidos/htpasswd-manager:latest
+```
+
+Lancement autonome (sans compose) :
+
+```sh
+docker run -d --name htpasswd-manager \
+  -e ADMIN_USER=admin -e ADMIN_PASSWORD='changez-moi' \
+  -v htpasswd-data:/data \
+  -p 127.0.0.1:8080:8080 \
+  --read-only --tmpfs /tmp:size=1m --cap-drop ALL --security-opt no-new-privileges:true \
+  afidos/htpasswd-manager:latest
+```
+
+## Démarrage (compose)
 
 ```sh
 cp .env.example .env && chmod 600 .env      # puis éditez ADMIN_PASSWORD
-docker compose up -d --build
+docker compose pull && docker compose up -d  # image publiée
+# ou : docker compose up -d --build          # construction locale
 # Interface : http://127.0.0.1:8080
 docker compose --profile mailpit up -d       # optionnel : Mailpit branché sur le même fichier
 ```
