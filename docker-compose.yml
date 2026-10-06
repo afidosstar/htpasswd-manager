@@ -1,0 +1,83 @@
+name: htpasswd
+
+services:
+  htpasswd-manager:
+    build:
+      context: .
+      target: runtime
+    image: htpasswd-manager:1.0.0
+    restart: unless-stopped
+    init: false                     # tini est déjà l'ENTRYPOINT de l'image
+    environment:
+      HTPASSWD_PATH: /data/passwords
+      # Authentification de l'interface : laisser vide = accès libre (déconseillé).
+      ADMIN_USER: ${ADMIN_USER:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Alternative recommandée : Docker secrets (décommenter aussi « secrets » plus bas)
+      # ADMIN_USER_FILE: /run/secrets/admin_user
+      # ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      DEFAULT_ALGORITHM: ${DEFAULT_ALGORITHM:-bcrypt-2y}
+      BCRYPT_COST: ${BCRYPT_COST:-10}
+      SHACRYPT_ROUNDS: ${SHACRYPT_ROUNDS:-5000}
+      # 0640 : lisible par root (Mailpit) et l'UID 1000. Passer à 0644 si le
+      # consommateur du fichier tourne sous un autre UID non-root.
+      FILE_MODE: ${FILE_MODE:-0640}
+    volumes:
+      # Monter un RÉPERTOIRE (et non le fichier seul) : indispensable au rename atomique.
+      - htpasswd-data:/data
+    ports:
+      # Exposé sur la boucle locale uniquement : à publier derrière un reverse proxy TLS.
+      - "127.0.0.1:${HTPASSWD_UI_PORT:-8080}:8080"
+    networks:
+      - htpasswd-net
+    # --- Durcissement ---
+    read_only: true
+    tmpfs:
+      - /tmp:size=1m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
+    # secrets: [admin_user, admin_password]
+
+  # --- Exemple de consommateur : Mailpit (activer avec --profile mailpit) ------
+  # Mailpit lit le fichier au démarrage : après une modification, exécuter
+  #   docker compose restart mailpit
+  mailpit:
+    profiles: ["mailpit"]
+    image: axllent/mailpit:latest   # épinglez une version précise en production
+    restart: unless-stopped
+    depends_on:
+      htpasswd-manager:
+        condition: service_healthy
+    environment:
+      MP_UI_AUTH_FILE: /auth/passwords
+      MP_SMTP_AUTH_FILE: /auth/passwords
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    volumes:
+      - htpasswd-data:/auth:ro
+    ports:
+      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:1025:1025"
+    networks:
+      - htpasswd-net
+
+volumes:
+  htpasswd-data:
+    name: htpasswd-data
+
+networks:
+  htpasswd-net:
+    name: htpasswd-net
+    driver: bridge
+
+# secrets:
+#   admin_user:
+#     file: ./secrets/admin_user
+#   admin_password:
+#     file: ./secrets/admin_password
