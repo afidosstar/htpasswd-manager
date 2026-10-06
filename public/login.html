@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Connexion · htpasswd-manager</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233B4FD8'/%3E%3Ccircle cx='12' cy='16' r='5' fill='none' stroke='white' stroke-width='3'/%3E%3Cpath d='M17 16h10M23 16v5M27 16v4' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body class="login-page">
+  <aside class="login-aside" aria-hidden="true">
+    <div class="brand">
+      <span class="brand-mark"><svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><path d="M12 12h9M18 12v3M21 12v2"/></svg></span>
+      <span>htpasswd</span>
+    </div>
+<pre><b>mailpit-ui</b>:$2y$10$Jm8qv0Zr7hQ5x2N1kTqWbe…
+<b>smtp-relay</b>:$6$yEEN4EdS0V9.nq8N$Owj3V7Y…
+<b>legacy-app</b>:$apr1$u03CWAwU$RsUPxlgEP2…</pre>
+    <p>Gestion du fichier d'authentification partagé par Mailpit, Apache et Nginx.</p>
+  </aside>
+
+  <main class="login-main">
+    <section class="login-panel" aria-labelledby="login-title">
+      <div>
+        <h1 id="login-title">Connexion</h1>
+        <p class="sub">Identifiants administrateur définis par ADMIN_USER et ADMIN_PASSWORD.</p>
+      </div>
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="login-username">Identifiant</label>
+          <input id="login-username" name="username" type="text" required maxlength="256"
+                 autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
+        </div>
+        <div class="field">
+          <label for="login-password">Mot de passe</label>
+          <input id="login-password" name="password" type="password" required maxlength="256"
+                 autocomplete="current-password" spellcheck="false">
+        </div>
+        <p class="form-error" id="login-error" role="alert" hidden></p>
+        <button type="submit" class="btn btn-primary" id="login-btn">Se connecter</button>
+      </form>
+    </section>
+  </main>
+  <script src="/login.js" type="module"></script>
+</body>
+</html>
