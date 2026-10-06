@@ -46,12 +46,15 @@ services:
     # secrets: [admin_user, admin_password]
 
   # --- Exemple de consommateur : Mailpit (activer avec --profile mailpit) ------
-  # Mailpit lit le fichier au démarrage : après une modification, exécuter
-  #   docker compose restart mailpit
+  # Image officielle. Mailpit ne lit le fichier d'authentification qu'au démarrage :
+  # htpasswd-watch (monté depuis bin/) le relance à chaque modification, sans accès à Docker.
+  # Sous Swarm, le script est fourni par une config : voir examples/swarm/stack.yml.
   mailpit:
     profiles: ["mailpit"]
     image: axllent/mailpit:latest   # épinglez une version précise en production
     restart: unless-stopped
+    init: true                      # tini : signaux et processus zombies du superviseur
+    entrypoint: ["/bin/sh", "/usr/local/bin/htpasswd-watch", "--", "/mailpit"]
     depends_on:
       htpasswd-manager:
         condition: service_healthy
@@ -59,8 +62,13 @@ services:
       MP_UI_AUTH_FILE: /auth/passwords
       MP_SMTP_AUTH_FILE: /auth/passwords
       MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      # Base persistante : sans elle, les messages capturés sont perdus à chaque redémarrage.
+      MP_DATABASE: /data/mailpit.db
+      HTPASSWD_WATCH_FILE: /auth/passwords
     volumes:
       - htpasswd-data:/auth:ro
+      - mailpit-data:/data
+      - ./bin/htpasswd-watch:/usr/local/bin/htpasswd-watch:ro
     ports:
       - "127.0.0.1:8025:8025"
       - "127.0.0.1:1025:1025"
@@ -70,6 +78,8 @@ services:
 volumes:
   htpasswd-data:
     name: htpasswd-data
+  mailpit-data:
+    name: mailpit-data
 
 networks:
   htpasswd-net:

@@ -29,8 +29,82 @@ cp .env.example .env && chmod 600 .env      # puis éditez ADMIN_PASSWORD
 docker compose pull && docker compose up -d  # image publiée
 # ou : docker compose up -d --build          # construction locale
 # Interface : http://127.0.0.1:8080
-docker compose --profile mailpit up -d       # optionnel : Mailpit branché sur le même fichier
+docker compose --profile mailpit up -d       # optionnel : Mailpit branché sur le même fichier, rechargé à chaque modification
 ```
+
+## Prise en compte des modifications : `htpasswd-watch`
+
+Beaucoup de services ne lisent leur fichier de mots de passe qu'au démarrage (Mailpit) ou ne le relisent
+que sur signal (NATS, Nginx : `SIGHUP`). `htpasswd-watch`, fourni dans l'image, lance le service dans **son
+propre conteneur**, surveille le fichier et, à chaque modification (2 s environ) :
+
+- **relance** le service (par défaut) ;
+- ou lui **envoie un signal** (`--signal HUP`), sans couper les connexions.
+
+Aucun accès à Docker (`/var/run/docker.sock`) n'est nécessaire. C'est un script POSIX `sh` : il fonctionne
+dans toute image Alpine ou Debian (pas dans une image `scratch`, sans shell : prendre la variante `-alpine`).
+
+```
+htpasswd-watch [-f FICHIER] [-i SECONDES] [-s SIGNAL] -- commande [arguments...]
+```
+
+Le script est livré dans l'image htpasswd-manager. On le fournit au service **sans modifier son image** :
+on remplace seulement son `entrypoint`, et le script arrive par une config Swarm (ou un bind mount en compose).
+Il doit être à la même version que htpasswd-manager ; l'extraire de l'image déployée :
+
+```sh
+docker run --rm --entrypoint cat afidos/htpasswd-manager:1.0.0 /usr/local/bin/htpasswd-watch > htpasswd-watch
+```
+
+### Mailpit sous Docker Swarm
+
+Stack complète dans `examples/swarm/stack.yml` (secrets, placement, volumes). L'essentiel :
+
+```yaml
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    init: true
+    entrypoint: ["/bin/sh", "/usr/local/bin/htpasswd-watch", "--", "/mailpit"]
+    environment:
+      HTPASSWD_WATCH_FILE: /auth/passwords
+      MP_UI_AUTH_FILE: /auth/passwords
+      MP_SMTP_AUTH_FILE: /auth/passwords
+      MP_DATABASE: /data/mailpit.db        # sinon les messages sont perdus à chaque relance
+    configs:
+      - source: htpasswd-watch
+        target: /usr/local/bin/htpasswd-watch
+        mode: 0555
+    volumes:
+      - htpasswd-data:/auth:ro
+      - mailpit-data:/data
+
+configs:
+  htpasswd-watch:
+    name: htpasswd-watch-1.0.0             # configs immuables : un nom par version
+    file: ./htpasswd-watch
+```
+
+- Les volumes Swarm sont locaux au nœud : placez htpasswd-manager et Mailpit sur le même nœud (contrainte).
+- Mailpit est relancé à chaque modification : les connexions SMTP en cours sont coupées (moins d'une seconde).
+- Tout compte de l'interface Mailpit voit **tous** les messages : Mailpit n'isole pas les boîtes par utilisateur.
+  `MP_TAGS_USERNAME=true` étiquette les messages par compte SMTP (tri, pas contrôle d'accès).
+
+En compose (`docker compose --profile mailpit up -d`), le script est monté depuis `bin/` :
+`./bin/htpasswd-watch:/usr/local/bin/htpasswd-watch:ro`.
+
+### NATS, Nginx (rechargement par signal)
+
+Même principe, en mode signal : le service recharge sa configuration sans couper les connexions.
+
+```yaml
+entrypoint: ["/bin/sh", "/usr/local/bin/htpasswd-watch", "-f", "/etc/nats/users.conf", "-s", "HUP", "--",
+             "nats-server", "-c", "/etc/nats/nats.conf"]
+```
+
+NATS ne lit pas le format htpasswd : htpasswd-manager ne gère pas ses utilisateurs, mais `htpasswd-watch`
+peut recharger NATS quand son propre fichier change. Nginx et Apache relisent le fichier htpasswd à chaque
+requête : rien à recharger.
 
 ## Variables d'environnement
 
@@ -127,6 +201,8 @@ src/
   http/              en-têtes de sécurité, erreurs, fichiers statiques
   routes/            pages, connexion, utilisateurs
   htpasswd/          formats de hachage, stockage atomique du fichier
+bin/htpasswd-watch   relance ou signale un service quand le fichier change (POSIX sh)
+examples/swarm/      stack Swarm : htpasswd-manager + Mailpit rechargé automatiquement
 public/              interface : HTML, CSS et TypeScript compilé vers dist/public
   app.ts             navigation entre les vues
   views/             utilisateurs, fichier brut, journal d'audit

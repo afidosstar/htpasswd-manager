@@ -21,6 +21,7 @@ RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY tsconfig*.json ./
 COPY src ./src
 COPY public ./public
+COPY bin ./bin
 COPY test ./test
 RUN npm run typecheck && npm test
 
@@ -47,6 +48,9 @@ WORKDIR /app
 COPY --from=deps --chown=root:root /app/node_modules ./node_modules
 COPY --chown=root:root package.json ./
 COPY --from=build --chown=root:root /app/dist ./dist
+# Outil pour les services consommateurs (Mailpit…), à extraire et fournir par config Swarm :
+#   docker run --rm --entrypoint cat afidos/htpasswd-manager:<version> /usr/local/bin/htpasswd-watch
+COPY --chown=root:root --chmod=0755 bin/htpasswd-watch /usr/local/bin/htpasswd-watch
 
 USER node
 VOLUME ["/data"]
