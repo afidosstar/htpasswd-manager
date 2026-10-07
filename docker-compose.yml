@@ -22,6 +22,12 @@ services:
       # 0640 : lisible par root (Mailpit) et l'UID 1000. Passer à 0644 si le
       # consommateur du fichier tourne sous un autre UID non-root.
       FILE_MODE: ${FILE_MODE:-0640}
+      # Webhook appelé après chaque modification (vide = désactivé), ex. relance de Mailpit
+      # par Dokploy. L'URL et les en-têtes contiennent souvent un jeton : à garder dans .env.
+      RELOAD_WEBHOOK_URL: ${RELOAD_WEBHOOK_URL:-}
+      RELOAD_WEBHOOK_METHOD: ${RELOAD_WEBHOOK_METHOD:-POST}
+      RELOAD_WEBHOOK_HEADERS: ${RELOAD_WEBHOOK_HEADERS:-}
+      RELOAD_WEBHOOK_BODY: ${RELOAD_WEBHOOK_BODY:-}
     volumes:
       # Monter un RÉPERTOIRE (et non le fichier seul) : indispensable au rename atomique.
       - htpasswd-data:/data
@@ -46,14 +52,11 @@ services:
     # secrets: [admin_user, admin_password]
 
   # --- Consommateur : Mailpit -------------------------------------------------
-  # Image officielle. Mailpit ne lit le fichier d'authentification qu'au démarrage :
-  # htpasswd-watch (monté depuis bin/) le relance à chaque modification, sans accès à Docker.
-  # Sous Swarm, le script est fourni par une config : voir examples/swarm/stack.yml.
+  # Mailpit ne lit le fichier d'authentification qu'au démarrage : il doit être relancé après
+  # chaque modification, par le service que RELOAD_WEBHOOK_URL appelle (ex. Dokploy).
   mailpit:
     image: axllent/mailpit:latest   # épinglez une version précise en production
     restart: unless-stopped
-    init: true                      # tini : signaux et processus zombies du superviseur
-    entrypoint: ["/bin/sh", "/usr/local/bin/htpasswd-watch", "--", "/mailpit"]
     depends_on:
       htpasswd-manager:
         condition: service_healthy
@@ -63,11 +66,9 @@ services:
       MP_SMTP_AUTH_ALLOW_INSECURE: "true"
       # Base persistante : sans elle, les messages capturés sont perdus à chaque redémarrage.
       MP_DATABASE: /data/mailpit.db
-      HTPASSWD_WATCH_FILE: /auth/passwords
     volumes:
       - htpasswd-data:/auth:ro
       - mailpit-data:/data
-      - ./bin/htpasswd-watch:/usr/local/bin/htpasswd-watch:ro
     ports:
       - "127.0.0.1:8025:8025"
       - "127.0.0.1:1025:1025"

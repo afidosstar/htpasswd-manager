@@ -140,3 +140,42 @@ test('verrouillage après échecs répétés', async () => {
   assert.ok(Number(locked.headers['retry-after']) > 0);
   assert.equal((await login('secret', '10.0.0.10')).statusCode, 200);
 });
+
+test('une modification déclenche le webhook de rechargement et le trace dans le journal', async () => {
+  const http = await import('node:http');
+  const hits: string[] = [];
+  const server = http.createServer((req, res) => { hits.push(`${req.method} ${req.headers['x-api-key']}`); req.resume(); res.end(); });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as import('node:net').AddressInfo;
+
+  const dir = await mkdtemp(path.join(tmpdir(), 'htp-hook-'));
+  const config = loadConfig({
+    HTPASSWD_PATH: path.join(dir, 'passwords'), ADMIN_USER: 'admin', ADMIN_PASSWORD: 'secret', BCRYPT_COST: '4',
+    RELOAD_WEBHOOK_URL: `http://127.0.0.1:${port}/reload`, RELOAD_WEBHOOK_HEADERS: 'x-api-key: k', RELOAD_WEBHOOK_DELAY_MS: '50',
+  });
+  const hooked = await buildApp(config, { logger: false, publicDir: 'dist/public' });
+  try {
+    const res = await hooked.inject({ method: 'POST', url: '/api/login', headers: H, payload: { username: 'admin', password: 'secret' } });
+    const cookies = { hm_session: res.cookies[0]?.value ?? '' };
+    const inject = (opts: InjectOptions) => hooked.inject({ ...opts, headers: { ...H, ...opts.headers }, cookies });
+
+    await inject({ method: 'POST', url: '/api/users', payload: { username: 'dev', password: 'pw' } });
+    await inject({ method: 'POST', url: '/api/users', payload: { username: 'ops', password: 'pw' } });
+    assert.equal((await inject({ url: '/api/users' })).json().reload.state, 'pending');
+
+    const end = Date.now() + 3000;
+    while ((await inject({ url: '/api/users' })).json().reload.state !== 'ok' && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(hits, ['POST k']);
+    const { entries } = (await inject({ url: '/api/audit' })).json() as { entries: Array<{ event: string; detail?: string }> };
+    assert.equal(entries[0]?.event, 'reload.sent');
+    assert.equal(entries[0]?.detail, 'HTTP 200');
+  } finally {
+    await hooked.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test('sans webhook configuré : aucun état de rechargement', async () => {
+  const t = await session();
+  assert.equal((await as(t, { url: '/api/users' })).json().reload, null);
+});

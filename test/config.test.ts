@@ -41,3 +41,18 @@ test('configuration incohérente refusée', () => {
   assert.throws(() => loadConfig({ FILE_MODE: '0666' }), /modifiable par tous/);
   assert.equal(loadConfig({ FILE_MODE: '0644' }).fileMode, 0o644);
 });
+
+test('webhook de rechargement : désactivé par défaut, configuration validée', () => {
+  assert.equal(loadConfig({}).reloadWebhook, null);
+  const hook = loadConfig({
+    RELOAD_WEBHOOK_URL: 'https://dokploy.example.fr/api/application.reload',
+    RELOAD_WEBHOOK_HEADERS: 'x-api-key: abc; X-Trace: 1',
+    RELOAD_WEBHOOK_BODY: '{"applicationId":"42"}',
+  }).reloadWebhook;
+  assert.equal(hook?.method, 'POST');
+  assert.deepEqual(hook?.headers, { 'x-api-key': 'abc', 'x-trace': '1' });
+  assert.equal(hook?.body, '{"applicationId":"42"}');
+  assert.throws(() => loadConfig({ RELOAD_WEBHOOK_URL: 'ftp://x' }), /http\(s\)/);
+  assert.throws(() => loadConfig({ RELOAD_WEBHOOK_URL: 'https://x', RELOAD_WEBHOOK_METHOD: 'DELETE' }), /METHOD/);
+  assert.throws(() => loadConfig({ RELOAD_WEBHOOK_URL: 'https://x', RELOAD_WEBHOOK_HEADERS: 'sans-deux-points' }), /HEADERS/);
+});

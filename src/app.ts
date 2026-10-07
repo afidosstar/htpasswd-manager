@@ -7,6 +7,7 @@ import { HtpasswdStore } from './htpasswd/store.ts';
 import { SessionStore } from './auth/session.ts';
 import { LoginThrottle } from './auth/throttle.ts';
 import { AuditLog } from './audit/log.ts';
+import { ReloadWebhook } from './reload/webhook.ts';
 import { registerGuard } from './auth/guard.ts';
 import { registerSecurity } from './http/security.ts';
 import type { Config } from './config.ts';
@@ -29,6 +30,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     sessions: options.sessions ?? new SessionStore({ idleMs: config.sessionIdleMs, maxAgeMs: config.sessionMaxAgeMs }),
     throttle: options.throttle ?? new LoginThrottle(),
     audit: options.audit ?? new AuditLog(),
+    webhook: null,
   };
 
   const app = Fastify({
@@ -40,6 +42,16 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     requestTimeout: 15_000,
     keepAliveTimeout: 5_000,
   });
+
+  if (config.reloadWebhook) {
+    const { audit } = deps;
+    deps.webhook = options.webhook ?? new ReloadWebhook(config.reloadWebhook, deps.store.file, {
+      onSuccess: (status, attempts) => audit.system(app.log, 'reload.sent', `HTTP ${status}${attempts > 1 ? `, ${attempts} tentatives` : ''}`),
+      onFailure: (error, attempts) => audit.system(app.log, 'reload.failed', `${error}, ${attempts} tentative${attempts > 1 ? 's' : ''}`),
+    });
+    const { webhook } = deps;
+    app.addHook('onClose', async () => webhook.close());
+  }
 
   const purge = setInterval(() => { deps.sessions.purge(); deps.throttle.purge(); }, 60_000).unref();
   app.addHook('onClose', async () => clearInterval(purge));

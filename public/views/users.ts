@@ -3,7 +3,7 @@
  */
 import { el, errorMessage } from '../lib.js';
 import { call, confirmAction, iconButton, timeAgo, toast } from '../ui.js';
-import type { Meta, Strength, User, UsersResponse } from '../types.js';
+import type { Meta, ReloadStatus, Strength, User, UsersResponse } from '../types.js';
 
 const USERNAME_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/;
 const STRENGTH_LABEL: Record<Strength, string> = { strong: 'Fort', weak: 'Faible', none: 'Aucun' };
@@ -18,6 +18,7 @@ export function createUsersView(ctx: UsersContext) {
   const ui = {
     filePath: el('file-path', HTMLSpanElement),
     modified: el('file-modified', HTMLSpanElement),
+    reload: el('reload-state', HTMLSpanElement),
     summary: el('summary', HTMLDivElement),
     search: el('search', HTMLInputElement),
     body: el('users-body', HTMLTableSectionElement),
@@ -93,9 +94,33 @@ export function createUsersView(ctx: UsersContext) {
     return tr;
   }
 
+  /** État du webhook de rechargement (masqué s'il n'est pas configuré). */
+  function renderReload(reload: ReloadStatus | null): void {
+    ui.reload.hidden = !reload || reload.state === 'idle';
+    if (!reload) return;
+    const pending = reload.state === 'pending' || reload.state === 'sending';
+    ui.reload.className = `reload ${pending ? 'pending' : reload.state}`;
+    ui.reload.textContent = pending
+      ? 'rechargement en cours…'
+      : reload.state === 'ok'
+        ? `rechargement demandé ${reload.at ? timeAgo(reload.at) : ''}`
+        : `échec du rechargement : ${reload.error ?? 'erreur inconnue'}`;
+    ui.reload.title = reload.at ? `Dernier appel du webhook : ${new Date(reload.at).toLocaleString('fr')}` : '';
+  }
+
+  /** Après une modification, suit le webhook jusqu'à son résultat (regroupement + nouvelles tentatives). */
+  let polling: ReturnType<typeof setTimeout> | undefined;
+  function followReload(deadline = Date.now() + 60_000): void {
+    clearTimeout(polling);
+    const state = ctx.data().reload?.state;
+    if (!state || state === 'idle' || state === 'ok' || state === 'failed' || Date.now() > deadline) return;
+    polling = setTimeout(() => { void ctx.refresh().then(() => followReload(deadline)).catch(() => {}); }, 1500);
+  }
+
   function render(): void {
-    const { users, modifiedAt } = ctx.data();
+    const { users, modifiedAt, reload } = ctx.data();
     ui.modified.textContent = modifiedAt ? `modifié ${timeAgo(modifiedAt)}` : 'pas encore créé';
+    renderReload(reload);
     renderSummary(users);
 
     const q = ui.search.value.trim().toLowerCase();
@@ -187,6 +212,7 @@ export function createUsersView(ctx: UsersContext) {
       const r = await call<{ created: boolean }>('/api/users', { method: 'POST', body: { username, password, algorithm } });
       closeDrawer();
       await ctx.refresh();
+      followReload();
       toast(r.created ? `Compte ${username} ajouté` : `Mot de passe de ${username} mis à jour`);
     } catch (err) {
       showError(errorMessage(err));
@@ -202,6 +228,7 @@ export function createUsersView(ctx: UsersContext) {
       await call(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
       if (editing === username) closeDrawer();
       await ctx.refresh();
+      followReload();
       toast(`Compte ${username} supprimé`);
     } catch (err) {
       toast(errorMessage(err), true);

@@ -48,7 +48,7 @@
       <header class="view-head">
         <div>
           <h1 id="users-title">Utilisateurs</h1>
-          <p class="view-meta"><span class="mono" id="file-path">…</span><span id="file-modified"></span></p>
+          <p class="view-meta"><span class="mono" id="file-path">…</span><span id="file-modified"></span><span class="reload" id="reload-state" hidden></span></p>
         </div>
         <button type="button" class="btn btn-primary" id="add-btn"><svg><use href="#i-plus"/></svg>Ajouter</button>
       </header>
@@ -133,7 +133,7 @@
       </header>
       <div class="table-wrap">
         <table class="audit">
-          <thead><tr><th scope="col">Date</th><th scope="col">Événement</th><th scope="col">Compte</th><th scope="col">Par</th><th scope="col">Adresse IP</th></tr></thead>
+          <thead><tr><th scope="col">Date</th><th scope="col">Événement</th><th scope="col">Compte / détail</th><th scope="col">Par</th><th scope="col">Adresse IP</th></tr></thead>
           <tbody id="audit-body"></tbody>
         </table>
         <p class="empty" id="audit-empty" hidden>Aucun événement depuis le démarrage.</p>

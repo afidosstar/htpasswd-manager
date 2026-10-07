@@ -14,7 +14,7 @@ const isView = (v: string): v is View => (VIEWS as readonly string[]).includes(v
 
 async function init(): Promise<void> {
   const meta = await call<Meta>('/api/meta');
-  let data: UsersResponse = { raw: '', modifiedAt: null, users: [] };
+  let data: UsersResponse = { raw: '', modifiedAt: null, users: [], reload: null };
 
   const usersView = createUsersView({ meta, data: () => data, refresh });
   const fileView = createFileView(() => data.raw);

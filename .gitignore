@@ -18,4 +18,3 @@ Thumbs.db
 
 # Build TypeScript
 dist/
-examples/swarm/htpasswd-watch

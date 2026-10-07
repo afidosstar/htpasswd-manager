@@ -2,9 +2,11 @@
  * Journal d'audit : derniers événements en mémoire (consultables dans l'interface)
  * et copie systématique dans les journaux du conteneur.
  */
-import type { FastifyRequest } from 'fastify';
+import type { FastifyBaseLogger, FastifyRequest } from 'fastify';
 
-export type AuditEvent = 'auth.login' | 'auth.logout' | 'auth.failure' | 'user.created' | 'user.updated' | 'user.deleted';
+type Logger = Pick<FastifyBaseLogger, 'info' | 'warn'>;
+
+export type AuditEvent = 'auth.login' | 'auth.logout' | 'auth.failure' | 'user.created' | 'user.updated' | 'user.deleted' | 'reload.sent' | 'reload.failed';
 
 export interface AuditEntry {
   ts: string;
@@ -13,6 +15,8 @@ export interface AuditEntry {
   actor: string | null;
   username?: string;
   algorithm?: string;
+  /** Détail technique (code HTTP, erreur réseau…). */
+  detail?: string;
 }
 
 export class AuditLog {
@@ -26,10 +30,18 @@ export class AuditLog {
   }
 
   record(request: FastifyRequest, event: AuditEvent, details: { actor?: string | null; username?: string; algorithm?: string } = {}): AuditEntry {
-    const entry: AuditEntry = { ts: this.now().toISOString(), event, ip: request.ip, actor: details.actor ?? request.user, ...details };
+    return this.#push({ ts: this.now().toISOString(), event, ip: request.ip, actor: details.actor ?? request.user, ...details }, request.log);
+  }
+
+  /** Événement émis par le serveur lui-même (hors requête), ex. résultat du webhook. */
+  system(log: Logger, event: AuditEvent, detail: string): AuditEntry {
+    return this.#push({ ts: this.now().toISOString(), event, ip: '', actor: 'système', detail }, log);
+  }
+
+  #push(entry: AuditEntry, log: Logger): AuditEntry {
     this.#entries.push(entry);
     if (this.#entries.length > this.limit) this.#entries.splice(0, this.#entries.length - this.limit);
-    request.log[event === 'auth.failure' ? 'warn' : 'info']({ audit: entry }, event);
+    log[entry.event.endsWith('failure') || entry.event.endsWith('failed') ? 'warn' : 'info']({ audit: entry }, entry.event);
     return entry;
   }
 

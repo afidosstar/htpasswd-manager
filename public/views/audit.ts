@@ -12,6 +12,8 @@ const EVENTS: Record<AuditEvent, { label: string; tone: 'ok' | 'bad' | 'info' | 
   'user.created': { label: 'Compte créé', tone: 'info' },
   'user.updated': { label: 'Mot de passe changé', tone: 'info' },
   'user.deleted': { label: 'Compte supprimé', tone: 'bad' },
+  'reload.sent': { label: 'Rechargement demandé', tone: 'ok' },
+  'reload.failed': { label: 'Échec du rechargement', tone: 'bad' },
 };
 
 function cell(text: string, className = ''): HTMLTableCellElement {
@@ -37,7 +39,7 @@ export function createAuditView() {
     tag.textContent = info.label;
     ev.append(tag);
 
-    tr.append(when, ev, cell(e.username ?? '—', 'who'), cell(e.actor ?? '—', 'who'), cell(e.ip, 'ip'));
+    tr.append(when, ev, cell(e.username ?? e.detail ?? '—', e.username ? 'who' : 'detail'), cell(e.actor ?? '—', 'who'), cell(e.ip || '—', 'ip'));
     return tr;
   }
 

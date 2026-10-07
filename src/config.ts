@@ -5,6 +5,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { parseEnv } from 'node:util';
 import { SHA_ROUNDS_DEFAULT, isAlgorithm, type Algorithm } from './htpasswd/hash.ts';
+import type { WebhookConfig } from './reload/webhook.ts';
 
 export class ConfigError extends Error {}
 
@@ -27,6 +28,8 @@ export interface Config {
   readonly cookieSecure: CookieSecure;
   readonly trustProxy: boolean;
   readonly maxBody: number;
+  /** Webhook appelé après chaque modification du fichier, null si non configuré. */
+  readonly reloadWebhook: WebhookConfig | null;
 }
 
 function intEnv(env: Env, name: string, def: number, min: number, max: number): number {
@@ -69,6 +72,45 @@ export function loadEnvFile(env: Env = process.env, cwd: string = process.cwd())
   return { file, exposed };
 }
 
+const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH']);
+
+/** En-têtes « Nom: valeur », un par ligne ou séparés par « ; ». */
+function parseHeaders(raw: string): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const part of raw.split(/\r?\n|;/)) {
+    if (!part.trim()) continue;
+    const i = part.indexOf(':');
+    const name = part.slice(0, i).trim();
+    if (i <= 0 || !/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(name)) {
+      throw new ConfigError(`RELOAD_WEBHOOK_HEADERS : en-tête invalide « ${part.trim().slice(0, 40)} » (attendu « Nom: valeur »)`);
+    }
+    headers[name.toLowerCase()] = part.slice(i + 1).trim();
+  }
+  return headers;
+}
+
+function loadWebhook(env: Env): WebhookConfig | null {
+  // L'URL contient souvent un jeton (webhook Dokploy) : lisible aussi via RELOAD_WEBHOOK_URL_FILE.
+  const url = secret(env, 'RELOAD_WEBHOOK_URL');
+  if (!url) return null;
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { throw new ConfigError('RELOAD_WEBHOOK_URL invalide.'); }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new ConfigError('RELOAD_WEBHOOK_URL doit être en http(s).');
+
+  const method = (env.RELOAD_WEBHOOK_METHOD || 'POST').toUpperCase();
+  if (!METHODS.has(method)) throw new ConfigError(`RELOAD_WEBHOOK_METHOD invalide : ${method} (GET, POST, PUT ou PATCH)`);
+
+  return {
+    url,
+    method,
+    headers: parseHeaders(secret(env, 'RELOAD_WEBHOOK_HEADERS')),
+    body: env.RELOAD_WEBHOOK_BODY || null,
+    delayMs: intEnv(env, 'RELOAD_WEBHOOK_DELAY_MS', 2000, 0, 60_000),
+    timeoutMs: 10_000,
+    retryDelaysMs: [2_000, 10_000, 30_000],
+  };
+}
+
 export function loadConfig(env: Env = process.env): Config {
   const defaultAlgorithm = env.DEFAULT_ALGORITHM || 'bcrypt-2y';
   if (!isAlgorithm(defaultAlgorithm)) throw new ConfigError(`DEFAULT_ALGORITHM invalide : ${defaultAlgorithm}`);
@@ -108,5 +150,6 @@ export function loadConfig(env: Env = process.env): Config {
     // À activer derrière un reverse proxy : l'IP client (verrouillage) vient alors de X-Forwarded-For.
     trustProxy: env.TRUST_PROXY === 'true',
     maxBody: 8 * 1024,
+    reloadWebhook: loadWebhook(env),
   });
 }

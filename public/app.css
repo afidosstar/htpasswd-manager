@@ -132,6 +132,13 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .view-meta .mono { color: var(--ink); word-break: break-all; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
+.reload { display: inline-flex; align-items: center; gap: 6px; }
+.reload::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.reload.ok::before { background: var(--ok); }
+.reload.failed { color: var(--bad); }
+.reload.failed::before { background: var(--bad); }
+.reload.pending::before { background: var(--warn); }
+
 /* ------------------------------------------------------------ résumé */
 .summary { display: flex; gap: 10px; flex-wrap: wrap; }
 .summary .stat {
@@ -224,7 +231,8 @@ input[aria-invalid="true"] { border-color: var(--bad); }
 table.audit td { white-space: nowrap; }
 table.audit td.when { color: var(--muted); font-variant-numeric: tabular-nums; }
 table.audit td.who, table.audit td.ip { font-family: var(--mono); font-size: 12.5px; }
-table.audit td.ip { color: var(--muted); }
+table.audit td.ip, table.audit td.detail { color: var(--muted); }
+table.audit td.detail { font-size: 12.5px; white-space: normal; }
 .event { display: inline-flex; align-items: center; gap: 7px; }
 .event::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .event.ok::before { background: var(--ok); }

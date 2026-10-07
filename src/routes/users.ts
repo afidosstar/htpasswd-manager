@@ -17,7 +17,7 @@ interface UpsertBody {
   algorithm?: unknown;
 }
 
-const userRoutes: FastifyPluginAsync<Deps> = async (app, { config, store, audit }) => {
+const userRoutes: FastifyPluginAsync<Deps> = async (app, { config, store, audit, webhook }) => {
   app.get('/api/meta', async (request) => ({
     file: store.file,
     authEnabled: config.authEnabled,
@@ -31,6 +31,7 @@ const userRoutes: FastifyPluginAsync<Deps> = async (app, { config, store, audit 
     return {
       raw,
       modifiedAt,
+      reload: webhook ? webhook.status : null,
       users: users.map((u) => {
         const algo = detectAlgorithm(u.hash);
         return { username: u.username, algorithm: algo.id, algorithmLabel: algo.label, strength: algorithmStrength(algo.id) };
@@ -48,6 +49,7 @@ const userRoutes: FastifyPluginAsync<Deps> = async (app, { config, store, audit 
     const hash = await hashPassword(password, algorithm, { bcryptCost: config.bcryptCost, shaRounds: config.shaRounds });
     const { created } = await store.upsert(username, hash);
     audit.record(request, created ? 'user.created' : 'user.updated', { username, algorithm });
+    webhook?.schedule();
     return reply.code(created ? 201 : 200).send({ username, algorithm, created });
   });
 
@@ -55,6 +57,7 @@ const userRoutes: FastifyPluginAsync<Deps> = async (app, { config, store, audit 
     const username = validateUsername(request.params.username);
     if (!(await store.remove(username))) throw new HttpError(404, `L'utilisateur « ${username} » n'existe pas.`);
     audit.record(request, 'user.deleted', { username });
+    webhook?.schedule();
     return { username, deleted: true };
   });
 

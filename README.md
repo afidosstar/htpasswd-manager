@@ -26,84 +26,42 @@ docker run -d --name htpasswd-manager \
 
 ```sh
 cp .env.example .env && chmod 600 .env      # puis éditez ADMIN_PASSWORD
-docker compose pull && docker compose up -d  # htpasswd-manager + Mailpit (rechargé à chaque modification)
+docker compose pull && docker compose up -d  # htpasswd-manager + Mailpit
 # ou : docker compose up -d --build          # construction locale
 # Interface : http://127.0.0.1:8080 — Mailpit : http://127.0.0.1:8025
 ```
 
-## Prise en compte des modifications : `htpasswd-watch`
+## Prise en compte des modifications : webhook de rechargement
 
-Beaucoup de services ne lisent leur fichier de mots de passe qu'au démarrage (Mailpit) ou ne le relisent
-que sur signal (NATS, Nginx : `SIGHUP`). `htpasswd-watch`, fourni dans l'image, lance le service dans **son
-propre conteneur**, surveille le fichier et, à chaque modification (2 s environ) :
+Nginx et Apache relisent le fichier à chaque requête : rien à faire. Mailpit, lui, ne le lit qu'au démarrage
+et doit être relancé. Quand `RELOAD_WEBHOOK_URL` est défini, htpasswd-manager appelle cette URL après chaque
+modification ; le service appelé (Dokploy, pipeline…) relance Mailpit. htpasswd-manager n'a besoin d'aucun
+accès à Docker.
 
-- **relance** le service (par défaut) ;
-- ou lui **envoie un signal** (`--signal HUP`), sans couper les connexions.
+- Regroupement : plusieurs modifications rapprochées (`RELOAD_WEBHOOK_DELAY_MS`, 2 s) produisent un seul appel.
+- Échec (code HTTP hors 2xx, réseau, délai de 10 s) : 3 nouvelles tentatives (2 s, 10 s, 30 s).
+- Résultat visible dans l'interface (« rechargement demandé » / « échec du rechargement ») et dans le journal d'audit.
+- Corps par défaut : `{"event":"htpasswd.changed","file":"/data/passwords","ts":"…"}`.
 
-Aucun accès à Docker (`/var/run/docker.sock`) n'est nécessaire. C'est un script POSIX `sh` : il fonctionne
-dans toute image Alpine ou Debian (pas dans une image `scratch`, sans shell : prendre la variante `-alpine`).
+### Avec Dokploy
 
-```
-htpasswd-watch [-f FICHIER] [-i SECONDES] [-s SIGNAL] -- commande [arguments...]
-```
-
-Le script est livré dans l'image htpasswd-manager. On le fournit au service **sans modifier son image** :
-on remplace seulement son `entrypoint`, et le script arrive par une config Swarm (ou un bind mount en compose).
-Il doit être à la même version que htpasswd-manager ; l'extraire de l'image déployée :
+Déployez Mailpit comme **application Dokploy distincte** (image `axllent/mailpit`), pour que seule elle soit
+relancée. L'API `application.reload` relance son conteneur sans reconstruire l'image :
 
 ```sh
-docker run --rm --entrypoint cat afidos/htpasswd-manager:1.1.0 /usr/local/bin/htpasswd-watch > htpasswd-watch
+RELOAD_WEBHOOK_URL=https://dokploy.example.fr/api/application.reload
+RELOAD_WEBHOOK_HEADERS=x-api-key: <clé API Dokploy>
+RELOAD_WEBHOOK_BODY={"applicationId":"<id de l'application Mailpit>","appName":"<nom interne>"}
 ```
 
-### Mailpit sous Docker Swarm
+Vérifiez les champs attendus dans le Swagger de votre instance (`https://<dokploy>/swagger`). La clé API
+donne accès à Dokploy : gardez-la dans `.env` (`chmod 600`) ou dans un fichier via `RELOAD_WEBHOOK_HEADERS_FILE`.
 
-Stack complète dans `examples/swarm/stack.yml` (secrets, placement, volumes). L'essentiel :
+### Mailpit
 
-```yaml
-services:
-  mailpit:
-    image: axllent/mailpit:latest
-    init: true
-    entrypoint: ["/bin/sh", "/usr/local/bin/htpasswd-watch", "--", "/mailpit"]
-    environment:
-      HTPASSWD_WATCH_FILE: /auth/passwords
-      MP_UI_AUTH_FILE: /auth/passwords
-      MP_SMTP_AUTH_FILE: /auth/passwords
-      MP_DATABASE: /data/mailpit.db        # sinon les messages sont perdus à chaque relance
-    configs:
-      - source: htpasswd-watch
-        target: /usr/local/bin/htpasswd-watch
-        mode: 0555
-    volumes:
-      - htpasswd-data:/auth:ro
-      - mailpit-data:/data
-
-configs:
-  htpasswd-watch:
-    name: htpasswd-watch-1.1.0             # configs immuables : un nom par version
-    file: ./htpasswd-watch
-```
-
-- Les volumes Swarm sont locaux au nœud : placez htpasswd-manager et Mailpit sur le même nœud (contrainte).
-- Mailpit est relancé à chaque modification : les connexions SMTP en cours sont coupées (moins d'une seconde).
+- Définissez `MP_DATABASE` sur un volume, sinon les messages capturés sont perdus à chaque relance.
 - Tout compte de l'interface Mailpit voit **tous** les messages : Mailpit n'isole pas les boîtes par utilisateur.
   `MP_TAGS_USERNAME=true` étiquette les messages par compte SMTP (tri, pas contrôle d'accès).
-
-En compose, le script est monté depuis `bin/` :
-`./bin/htpasswd-watch:/usr/local/bin/htpasswd-watch:ro`.
-
-### NATS, Nginx (rechargement par signal)
-
-Même principe, en mode signal : le service recharge sa configuration sans couper les connexions.
-
-```yaml
-entrypoint: ["/bin/sh", "/usr/local/bin/htpasswd-watch", "-f", "/etc/nats/users.conf", "-s", "HUP", "--",
-             "nats-server", "-c", "/etc/nats/nats.conf"]
-```
-
-NATS ne lit pas le format htpasswd : htpasswd-manager ne gère pas ses utilisateurs, mais `htpasswd-watch`
-peut recharger NATS quand son propre fichier change. Nginx et Apache relisent le fichier htpasswd à chaque
-requête : rien à recharger.
 
 ## Variables d'environnement
 
@@ -120,6 +78,11 @@ requête : rien à recharger.
 | `SESSION_MAX_HOURS` | `12` | Durée de vie maximale d'une session |
 | `COOKIE_SECURE` | `auto` | `auto` (Secure si HTTPS ou `X-Forwarded-Proto: https`), `true`, `false` |
 | `TRUST_PROXY` | `false` | `true` derrière un reverse proxy : l'IP client (verrouillage) est lue dans `X-Forwarded-For` |
+| `RELOAD_WEBHOOK_URL` | vide | URL appelée après chaque modification (désactivé si vide). Aussi `RELOAD_WEBHOOK_URL_FILE` |
+| `RELOAD_WEBHOOK_METHOD` | `POST` | `GET`, `POST`, `PUT` ou `PATCH` |
+| `RELOAD_WEBHOOK_HEADERS` | vide | En-têtes `Nom: valeur`, séparés par `;` ou un saut de ligne. Aussi `RELOAD_WEBHOOK_HEADERS_FILE` |
+| `RELOAD_WEBHOOK_BODY` | JSON d'événement | Corps envoyé tel quel (`Content-Type: application/json`) |
+| `RELOAD_WEBHOOK_DELAY_MS` | `2000` | Délai de regroupement des modifications |
 | `LOG_LEVEL` | `info` | Niveau des journaux JSON (pino) |
 | `FILE_MODE` | `0640` | Permissions du fichier écrit (octal ; un mode modifiable par tous est refusé) |
 | `PORT` / `HOST` | `8080` / `0.0.0.0` | Écoute HTTP |
@@ -196,12 +159,11 @@ src/
   config.ts          variables d'environnement
   validation.ts      validation des entrées
   audit/             journal d'audit en mémoire
+  reload/            webhook de rechargement (regroupement, nouvelles tentatives)
   auth/              sessions, garde (cookie + anti-CSRF), limitation des tentatives
   http/              en-têtes de sécurité, erreurs, fichiers statiques
   routes/            pages, connexion, utilisateurs
   htpasswd/          formats de hachage, stockage atomique du fichier
-bin/htpasswd-watch   relance ou signale un service quand le fichier change (POSIX sh)
-examples/swarm/      stack Swarm : htpasswd-manager + Mailpit rechargé automatiquement
 public/              interface : HTML, CSS et TypeScript compilé vers dist/public
   app.ts             navigation entre les vues
   views/             utilisateurs, fichier brut, journal d'audit

@@ -6,6 +6,7 @@ import type { SessionStore } from './auth/session.ts';
 import type { LoginThrottle } from './auth/throttle.ts';
 import type { Config } from './config.ts';
 import type { AuditLog } from './audit/log.ts';
+import type { ReloadWebhook } from './reload/webhook.ts';
 
 /** Dépendances injectées dans les plugins de routes. */
 export interface Deps {
@@ -14,6 +15,8 @@ export interface Deps {
   sessions: SessionStore;
   throttle: LoginThrottle;
   audit: AuditLog;
+  /** Webhook de rechargement, null si RELOAD_WEBHOOK_URL n'est pas défini. */
+  webhook: ReloadWebhook | null;
 }
 
 declare module 'fastify' {

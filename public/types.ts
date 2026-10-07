@@ -14,8 +14,10 @@ export interface Meta {
 
 export interface User { username: string; algorithm: string; algorithmLabel: string; strength: Strength }
 
-export interface UsersResponse { raw: string; modifiedAt: string | null; users: User[] }
+export interface ReloadStatus { state: 'idle' | 'pending' | 'sending' | 'ok' | 'failed'; at: string | null; error: string | null }
 
-export type AuditEvent = 'auth.login' | 'auth.logout' | 'auth.failure' | 'user.created' | 'user.updated' | 'user.deleted';
+export interface UsersResponse { raw: string; modifiedAt: string | null; users: User[]; reload: ReloadStatus | null }
 
-export interface AuditEntry { ts: string; event: AuditEvent; ip: string; actor: string | null; username?: string; algorithm?: string }
+export type AuditEvent = 'auth.login' | 'auth.logout' | 'auth.failure' | 'user.created' | 'user.updated' | 'user.deleted' | 'reload.sent' | 'reload.failed';
+
+export interface AuditEntry { ts: string; event: AuditEvent; ip: string; actor: string | null; username?: string; algorithm?: string; detail?: string }
